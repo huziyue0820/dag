@@ -2,9 +2,11 @@ package blockchain
 
 import (
 	"dag/block"
+	"dag/transaction"
 	"fmt"
 	"github.com/boltdb/bolt"
 	"log"
+	"os"
 )
 
 //区块链结构
@@ -21,6 +23,7 @@ type BlockchainIterator struct {
 
 const dbFile = "blockchain.db" //存储区块链的文件
 const blocksBucket = "blocks"  //用来存储区块的bucket
+const genesisCoinbaseData = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"  //coin base中写的数据
 
 /**
 功能：向区块链中添加区块
@@ -29,7 +32,7 @@ const blocksBucket = "blocks"  //用来存储区块的bucket
 返回：
 	无
 */
-func (bc *Blockchain) AddBlock(data string) {
+func (bc *Blockchain) AddBlock(transactions []*transaction.Transaction) {
 	var lastHash []byte //添加区块的时候 最后一个区块的哈希
 
 	err := bc.DB.View(func(tx *bolt.Tx) error { //bolt数据库的只读模式
@@ -43,7 +46,7 @@ func (bc *Blockchain) AddBlock(data string) {
 		log.Panic(err)
 	}
 
-	newBlock := block.NewBlock(data, lastHash)
+	newBlock := block.NewBlock(transactions, lastHash)
 
 	err = bc.DB.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
@@ -71,8 +74,8 @@ func (bc *Blockchain) AddBlock(data string) {
 返回：
 	无
 */
-func NewGenesisBlock() *block.Block {
-	return block.NewBlock("Genesis Block", []byte{})
+func NewGenesisBlock(coinbase *transaction.Transaction) *block.Block {
+	return block.NewBlock([]*transaction.Transaction{coinbase}, []byte{})
 }
 
 /**
@@ -82,7 +85,12 @@ func NewGenesisBlock() *block.Block {
 返回：
 	无
 */
-func NewBlockchain() *Blockchain {
+func NewBlockchain(address string) *Blockchain {
+	if dbExists() == false {
+		fmt.Println("No existing blockchain found. Create one first.")
+		os.Exit(1)
+	}
+
 	var tip []byte                          //叶子区块
 	db, err := bolt.Open(dbFile, 0600, nil) //连接数据库
 	if err != nil {
@@ -123,6 +131,59 @@ func NewBlockchain() *Blockchain {
 
 	return &bc
 }
+
+func dbExists() bool {
+	if _, err := os.Stat(dbFile); os.IsNotExist(err) {
+		return false
+	}
+
+	return true
+}
+
+func CreateBlockchain(address string) *Blockchain {
+	if dbExists() {
+		fmt.Println("Blockchain already exists.")
+		os.Exit(1)
+	}
+
+	var tip []byte
+	db, err := bolt.Open(dbFile, 0600, nil)
+	if err != nil {
+		log.Panic(err)
+	}
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		cbtx := transaction.NewCoinbaseTx(address, genesisCoinbaseData)
+		genesis := NewGenesisBlock(cbtx)
+
+		b, err := tx.CreateBucket([]byte(blocksBucket))
+		if err != nil {
+			log.Panic(err)
+		}
+
+		err = b.Put(genesis.Hash, genesis.Serialize())
+		if err != nil {
+			log.Panic(err)
+		}
+
+		err = b.Put([]byte("l"), genesis.Hash)
+		if err != nil {
+			log.Panic(err)
+		}
+		tip = genesis.Hash
+
+		return nil
+	})
+
+	if err != nil {
+		log.Panic(err)
+	}
+
+	bc := Blockchain{tip, db}
+
+	return &bc
+}
+
 
 /**
 功能：创建一个区块链迭代器

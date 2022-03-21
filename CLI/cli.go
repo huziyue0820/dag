@@ -14,6 +14,15 @@ type CLI struct {
 	BC *blockchain.Blockchain
 }
 
+func (cli *CLI) send(from, to string, amount int) {
+	bc := blockchain.NewBlockchain(from)
+	defer bc.db.Close()
+
+	tx := NewUTXOTransaction(from, to, amount, bc)
+	bc.MineBlock([]*Transaction{tx})
+	fmt.Println("Success!")
+}
+
 func (cli *CLI) addBlock(data string) {
 	cli.BC.AddBlock(data)
 	fmt.Println("Success!")
