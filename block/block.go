@@ -71,3 +71,4 @@ func (b *Block) HashTransactions() []byte {
 
 	return txHash[:]
 }
+

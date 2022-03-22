@@ -3,6 +3,7 @@ package blockchain
 import (
 	"dag/block"
 	"dag/transaction"
+	"encoding/hex"
 	"fmt"
 	"github.com/boltdb/bolt"
 	"log"
@@ -21,9 +22,9 @@ type BlockchainIterator struct {
 	DB          *bolt.DB
 }
 
-const dbFile = "blockchain.db" //存储区块链的文件
-const blocksBucket = "blocks"  //用来存储区块的bucket
-const genesisCoinbaseData = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"  //coin base中写的数据
+const dbFile = "blockchain.db"                                                                      //存储区块链的文件
+const blocksBucket = "blocks"                                                                       //用来存储区块的bucket
+const genesisCoinbaseData = "The Times 03/Jan/2009 Chancellor on brink of second bailout for banks" //coin base中写的数据
 
 /**
 功能：向区块链中添加区块
@@ -184,7 +185,6 @@ func CreateBlockchain(address string) *Blockchain {
 	return &bc
 }
 
-
 /**
 功能：创建一个区块链迭代器
 参数：
@@ -206,12 +206,12 @@ func (bc *Blockchain) Iterator() *BlockchainIterator {
 	下一个区块
 */
 func (i *BlockchainIterator) Next() *block.Block {
-	var pre_block *block.Block
+	var currBlock *block.Block
 
 	err := i.DB.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(blocksBucket))
 		encodedBlock := b.Get(i.CurrentHash)
-		pre_block = block.DeserializeBlock(encodedBlock)  //得到上一个区块
+		currBlock = block.DeserializeBlock(encodedBlock) //得到上一个区块
 
 		return nil
 	})
@@ -220,8 +220,56 @@ func (i *BlockchainIterator) Next() *block.Block {
 		log.Panic(err)
 	}
 
-	i.CurrentHash = pre_block.PrevBlockHash  //向前遍历
+	i.CurrentHash = currBlock.PrevBlockHash //向前遍历
 
-	return pre_block
+	return currBlock
 }
 
+
+
+//查找当前未花费的交易
+func (bc *Blockchain) FindUnspentTransactions(address string) []transaction.Transaction {
+	var unspentTXs []transaction.Transaction  //未花费的交易
+	spentTXOs := make(map[string][]int)  //
+
+	bci := bc.Iterator()  //初始化一个迭代器 用来遍历账本
+
+	for {
+		block := bci.Next()
+
+		for _, tx := range block.Transactions{
+			txID := hex.EncodeToString(tx.ID)  //交易ID 的string形式
+
+
+		Outputs:
+			for outIdx, out := range tx.Vout{  //outIdx 输出交易的序列号 out 输出交易
+				if spentTXOs[txID] != nil{
+					for _,spentOut := range spentTXOs[txID]{
+						if spentOut==outIdx{
+							continue Outputs
+						}
+					}
+				}
+
+				if out.CanBeUnlockedWith(address){  //如果该输出是我们查询的地址上的锁，则这笔输出是我们要的
+					unspentTXs = append(unspentTXs, *tx)
+				}
+			}
+
+			if tx.IsCoinbase() == false{
+				for _, in := range tx.Vin{
+					if in.CanUnlockOutputWith(address){
+						inTxID := hex.EncodeToString(in.Txid)
+						spentTXOs[inTxID] = append(spentTXOs[inTxID], in.Vout)
+					}
+				}
+			}
+		}
+
+		if len(block.PrevBlockHash) == 0{
+			break
+		}
+	}
+
+	return unspentTXs
+}

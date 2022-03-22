@@ -48,7 +48,6 @@ func (tx *Transaction) SetID() {
 	tx.ID = hash[:]
 }
 
-
 /**
 功能：创建一个币基交易
 参数：
@@ -57,15 +56,30 @@ func (tx *Transaction) SetID() {
 返回：
 	*Transaction 新生成的币基交易
 */
-func NewCoinbaseTx(to, data string) *Transaction{
-	if data == ""{
+func NewCoinbaseTx(to, data string) *Transaction {
+	if data == "" {
 		data = fmt.Sprintf("Reward to '%s'", to)
 	}
 	txin := TXInput{[]byte{}, -1, data}
 	txout := TXOutput{subsidy, to}
-	tx := Transaction{nil , []TXInput{txin}, []TXOutput{txout}}
+	tx := Transaction{nil, []TXInput{txin}, []TXOutput{txout}}
 	tx.SetID()
 
 	return &tx
 
+}
+
+//用于一笔交易的输入交易 判断是否可以用来解锁这笔输入交易，保证是花的用户自己的钱
+func (in *TXInput) CanUnlockOutputWith(unlockingData string) bool {
+	return in.ScriptSig == unlockingData
+}
+
+//用于一笔交易的输出交易  判断是否可以用来解锁这笔输出交易，保证输出交易的钱还是用户自己的
+func (out *TXOutput) CanBeUnlockedWith(unlockingData string) bool {
+	return out.ScriptPubKey == unlockingData
+}
+
+//判断一笔交易是否为coinbase交易
+func (tx *Transaction) IsCoinbase() bool {
+	return len(tx.Vin) == 1 && len(tx.Vin[0].Txid) == 0 && tx.Vin[0].Vout == -1
 }
